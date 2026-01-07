@@ -1,0 +1,39 @@
+{
+  // Kotlin 项目配置
+  // 配置 Kotlin 语言服务器
+  "kotlin.languageServer.enabled": true,
+  "kotlin.languageServer.transport": "stdio",
+
+  // Java/Kotlin 项目源码根目录配置
+  // 这些路径告诉 IDE 从哪个目录开始计算包路径
+  // 路径是相对于工作区根目录的
+  // 重要：确保工作区根目录是 ComicReader 文件夹
+  "java.project.sourcePaths": [
+    "app/src/main/java",
+    "app/src/test/java",
+    "app/src/androidTest/java"
+  ],
+
+  // 配置 Java 项目输出目录
+  "java.project.outputPath": "app/build/intermediates/javac",
+
+  // 自动更新构建配置（当 Gradle 文件变化时）
+  "java.configuration.updateBuildConfiguration": "automatic",
+
+  // 排除构建目录（避免 IDE 索引这些文件）
+  "files.exclude": {
+    "**/build": true,
+    "**/.gradle": true
+  },
+
+  // 配置文件关联
+  "files.associations": {
+    "*.kt": "kotlin"
+  },
+
+  // 配置 Kotlin 编译器选项
+  "kotlin.compiler.jvm.target": "11",
+
+  // 禁用某些可能误报的检查
+  "kotlin.linting.debounceTime": 250
+}
