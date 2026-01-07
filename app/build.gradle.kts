@@ -51,6 +51,10 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
+    implementation("io.coil-kt:coil-compose:2.5.0")
+    // Pager 功能已包含在 foundation 库中（从 Compose 1.5.0+ 开始）
+    // 不需要单独引用 foundation-pager，BOM 会自动管理版本
+    implementation("androidx.compose.foundation:foundation")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

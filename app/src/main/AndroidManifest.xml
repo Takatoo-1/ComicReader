@@ -27,7 +27,7 @@
         </activity>
         <!-- 注册第二个 Activity -->
         <activity
-            android:name=".`SecondActivity.kt`"
+            android:name=".SecondActivity"
             android:exported="false"
             android:label="第二个页面"
             android:theme="@style/Theme.ComicReader" />

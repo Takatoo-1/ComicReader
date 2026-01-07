@@ -14,7 +14,7 @@ import com.example.comicreader.ui.theme.ComicReaderTheme
  * 第二个 Activity 页面
  * 在 AndroidManifest.xml 中已注册
  */
-class `SecondActivity.kt` : ComponentActivity() {
+class SecondActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {

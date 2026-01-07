@@ -9,8 +9,14 @@ import androidx.compose.foundation.layout.padding
 // Material Icons 是共享资源，Material 和 Material3 都使用相同的图标库
 // 虽然包名是 material.icons，但它完全适用于 Material3，这是官方推荐的做法
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
 import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -23,8 +29,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import com.example.comicreader.ui.theme.ComicReaderTheme
-import com.example.comicreader.ui.screens.*
+import com.example.comicreader.ui.screens.HomeScreen
+import com.example.comicreader.ui.screens.ProfileScreen
 
 class MainActivity : ComponentActivity() {
     // - `onCreate`：方法名，Activity 生命周期方法
@@ -103,7 +113,17 @@ fun MainScreen() {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
-            NavigationBar {
+            NavigationBar (modifier = Modifier.drawBehind{
+                val borderwidth = 7.dp.toPx()
+                drawLine(
+                    color = Color.Black,
+                    start = Offset(0f, 0f),           // 起点：左上角
+                    end = Offset(size.width, 0f),     // 终点：右上角
+                    strokeWidth = borderwidth
+                )
+                //      |   └─ Float 类型的 0（y 坐标）
+                //      └───── Float 类型的 0（x 坐标）
+            }) {
                 navItems.forEachIndexed { index, item ->
                     NavigationBarItem(
                         icon = { Icon(item.icon, contentDescription = item.title) },
@@ -118,7 +138,7 @@ fun MainScreen() {
         Box(modifier = Modifier.padding(innerPadding)) {
             when (selectedTabIndex) {
                 0 -> HomeScreen()
-                3 -> ProfileScreen()
+                1 -> ProfileScreen()
             }
         }
     }
