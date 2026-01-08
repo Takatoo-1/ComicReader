@@ -1,13 +1,17 @@
 package com.example.comicreader
 
+// Material Icons 是共享资源，Material 和 Material3 都使用相同的图标库
+// 虽然包名是 material.icons，但它完全适用于 Material3，这是官方推荐的做法
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-// Material Icons 是共享资源，Material 和 Material3 都使用相同的图标库
-// 虽然包名是 material.icons，但它完全适用于 Material3，这是官方推荐的做法
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
@@ -17,7 +21,6 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -26,15 +29,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import com.example.comicreader.ui.theme.ComicReaderTheme
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
 import com.example.comicreader.ui.screens.HomeScreen
 import com.example.comicreader.ui.screens.ProfileScreen
+import com.example.comicreader.ui.theme.ComicReaderTheme
+import java.io.File
 
 class MainActivity : ComponentActivity() {
     // - `onCreate`：方法名，Activity 生命周期方法
@@ -54,15 +57,86 @@ class MainActivity : ComponentActivity() {
         // - `super`：关键字，指向父类ComponentActivity
         // - `super.onCreate(savedInstanceState)`：调用父类的 `onCreate` 方法
         super.onCreate(savedInstanceState)
+
+        // 检查并请求存储权限（Android 11+）
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            checkAndRequestStoragePermission()
+        }
+
+        // 创建应用的存储文件夹 ComicStorage
+        createComicStorageFolder()
+
         // - `enableEdgeToEdge`：调用之前导入的 `enableEdgeToEdge` 函数
         // - 启用全屏显示模式
         // - 让应用内容延伸到状态栏和导航栏下方
         enableEdgeToEdge()
         // - `setContent`：是 Jetpack Compose 的入口函数 （类似 React 的 `render()` 或 Vue 的 `template`）
         // - 在这里定义整个 Activity(根组件) 的 UI
-        setContent {
-            ComicReaderTheme {
-                MainScreen()
+        setContent { ComicReaderTheme { MainScreen() } }
+    }
+
+    // 创建 ComicStorage 文件夹
+    private fun createComicStorageFolder() {
+        try {
+            // /storage/emulated/0	外部存储根目录（主存储）
+            val storageDir =
+                    File(android.os.Environment.getExternalStorageDirectory(), "ComicStorage")
+            android.util.Log.d("MainActivity", "尝试创建文件夹: ${storageDir.absolutePath}")
+            android.util.Log.d("MainActivity", "文件夹是否存在: ${storageDir.exists()}")
+
+            if (!storageDir.exists()) {
+                val created = storageDir.mkdirs()
+                android.util.Log.d("MainActivity", "mkdirs() 返回值: $created")
+
+                // 验证文件夹是否真的创建成功
+                val actuallyExists = storageDir.exists() && storageDir.isDirectory
+                android.util.Log.d("MainActivity", "创建后文件夹是否存在: $actuallyExists")
+
+                if (actuallyExists) {
+                    android.util.Log.d(
+                            "MainActivity",
+                            "ComicStorage 文件夹创建成功: ${storageDir.absolutePath}"
+                    )
+                } else {
+                    android.util.Log.e(
+                            "MainActivity",
+                            "ComicStorage 文件夹创建失败！路径: ${storageDir.absolutePath}"
+                    )
+                    android.util.Log.e(
+                            "MainActivity",
+                            "可能原因: Android 10+ 分区存储限制，需要 MANAGE_EXTERNAL_STORAGE 权限"
+                    )
+                }
+            } else {
+                android.util.Log.d(
+                        "MainActivity",
+                        "ComicStorage 文件夹已存在: ${storageDir.absolutePath}"
+                )
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "创建 ComicStorage 文件夹失败", e)
+        }
+    }
+
+    // 检查并请求存储权限（Android 11+）
+    private fun checkAndRequestStoragePermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!android.os.Environment.isExternalStorageManager()) {
+                android.util.Log.w("MainActivity", "需要 MANAGE_EXTERNAL_STORAGE 权限")
+                android.util.Log.w("MainActivity", "请前往设置 -> 应用 -> Comic Reader -> 权限 -> 管理所有文件")
+                try {
+                    // 打开系统设置页面让用户手动赋予权限
+                    val intent =
+                            android.content.Intent(
+                                    Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION
+                            )
+                    intent.data = android.net.Uri.parse("package:$packageName")
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    android.util.Log.e("MainActivity", "无法打开权限设置页面", e)
+                }
+            } else {
+                android.util.Log.d("MainActivity", "已拥有 MANAGE_EXTERNAL_STORAGE 权限")
             }
         }
     }
@@ -74,10 +148,7 @@ class MainActivity : ComponentActivity() {
 // - 只有 `@Composable` 函数才能调用其他 `@Composable` 函数
 @Composable
 fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "你好 $name!",
-        modifier = modifier
-    )
+    Text(text = "你好 $name!", modifier = modifier)
 }
 
 // - `@Preview` 是一个注解
@@ -86,16 +157,14 @@ fun Greeting(name: String, modifier: Modifier = Modifier) {
 @Preview(showBackground = true)
 @Composable
 fun GreetingPreview() {
-    ComicReaderTheme {
-        Greeting("Android")
-    }
+    ComicReaderTheme { Greeting("Android") }
 }
 
 // 底部导航栏的数据类
 sealed class BottomNavItem(
-    val title: String,
-    val icon: androidx.compose.ui.graphics.vector.ImageVector,
-    val route: String
+        val title: String,
+        val icon: androidx.compose.ui.graphics.vector.ImageVector,
+        val route: String
 ) {
     object Home : BottomNavItem("首页", Icons.Default.Home, "home")
     object Profile : BottomNavItem("我的", Icons.Default.Person, "profile")
@@ -105,35 +174,35 @@ sealed class BottomNavItem(
 fun MainScreen() {
     var selectedTabIndex by remember { mutableIntStateOf(0) }
 
-    val navItems = listOf(
-        BottomNavItem.Home,
-        BottomNavItem.Profile
-    )
+    val navItems = listOf(BottomNavItem.Home, BottomNavItem.Profile)
 
     Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        bottomBar = {
-            NavigationBar (modifier = Modifier.drawBehind{
-                val borderwidth = 7.dp.toPx()
-                drawLine(
-                    color = Color.Black,
-                    start = Offset(0f, 0f),           // 起点：左上角
-                    end = Offset(size.width, 0f),     // 终点：右上角
-                    strokeWidth = borderwidth
-                )
-                //      |   └─ Float 类型的 0（y 坐标）
-                //      └───── Float 类型的 0（x 坐标）
-            }) {
-                navItems.forEachIndexed { index, item ->
-                    NavigationBarItem(
-                        icon = { Icon(item.icon, contentDescription = item.title) },
-                        label = { Text(item.title) },
-                        selected = selectedTabIndex == index,
-                        onClick = { selectedTabIndex = index }
-                    )
+            modifier = Modifier.fillMaxSize(),
+            bottomBar = {
+                NavigationBar(
+                        modifier =
+                                Modifier.drawBehind {
+                                    val borderwidth = 7.dp.toPx()
+                                    drawLine(
+                                            color = Color.Black,
+                                            start = Offset(0f, 0f), // 起点：左上角
+                                            end = Offset(size.width, 0f), // 终点：右上角
+                                            strokeWidth = borderwidth
+                                    )
+                                    //      |   └─ Float 类型的 0（y 坐标）
+                                    //      └───── Float 类型的 0（x 坐标）
+                                }
+                ) {
+                    navItems.forEachIndexed { index, item ->
+                        NavigationBarItem(
+                                icon = { Icon(item.icon, contentDescription = item.title) },
+                                label = { Text(item.title) },
+                                selected = selectedTabIndex == index,
+                                onClick = { selectedTabIndex = index }
+                        )
+                    }
                 }
             }
-        }
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding)) {
             when (selectedTabIndex) {
@@ -150,15 +219,9 @@ fun Counter(name: String, originValue: Int = 0, modifier: Modifier = Modifier) {
     Column(modifier = modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Text(text = "$name : $originValue")
         Text(text = "Count : $count , 点击新增数值")
-        Button(onClick = { count++ }) {
-            Text("+")
-        }
-        Button(onClick = { count-- }) {
-            Text("-")
-        }
-        Button(onClick = { count = originValue }) {
-            Text("Reset")
-        }
+        Button(onClick = { count++ }) { Text("+") }
+        Button(onClick = { count-- }) { Text("-") }
+        Button(onClick = { count = originValue }) { Text("Reset") }
     }
     Text(text = "try it")
 }
