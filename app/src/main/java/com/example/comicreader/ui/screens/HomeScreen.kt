@@ -37,6 +37,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -66,6 +67,8 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import java.io.File
 import java.util.zip.ZipFile
+import com.github.junrar.Archive
+import com.github.junrar.rarfile.FileHeader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -73,10 +76,10 @@ import kotlinx.coroutines.withContext
 // 漫画数据模型
 data class ComicItem(
         val id: Int, // 漫画ID
-        val name: String, // 漫画名称
-        val thumbnailPath: String?, // 缩略图路径
-        val imageCount: Int, // 图片数量
-        val folderPath: String // 文件夹路径
+        val name: String, // 漫画名称（也是文件夹名称）
+        val thumbnailPath: String?, // 封面图路径
+        val imageCount: Int // 图片数量
+        // 注意：文件夹路径统一为 ComicStorage/name，不再单独存储
 )
 
 @Composable
@@ -92,6 +95,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
     var selectedComicItem by remember { mutableStateOf<ComicItem?>(null) }
     var imagePaths by remember { mutableStateOf<List<String>>(emptyList()) }
     var isLoadingImages by remember { mutableStateOf(false) }
+    var isLoadingComicList by remember { mutableStateOf(false) }
 
     // 刷新漫画列表（从 ComicStorage 扫描）
     fun refreshComicListFromStorage(context: Context) {
@@ -131,46 +135,51 @@ fun HomeScreen(modifier: Modifier = Modifier) {
 
                     // 在后台线程获取图片数量并检查重复
                     coroutineScope.launch {
-                        val imageCount =
-                                withContext(Dispatchers.IO) { getImageCountFromFolder(context, it) }
+                        isLoadingComicList = true
+                        try {
+                            val imageCount =
+                                    withContext(Dispatchers.IO) { getImageCountFromFolder(context, it) }
 
-                        // 检查是否已存在相同名称和图片数量的文件夹
-                        val isDuplicate =
-                                comicList.any { item ->
-                                    item.name == displayName && item.imageCount == imageCount
-                                }
-
-                        if (isDuplicate) {
-                            // 如果重复，显示提示并终止，回退到主页
-                            Toast.makeText(context, "该漫画文件夹已经添加到列表中了", Toast.LENGTH_SHORT).show()
-                            Log.d("ComicReader", "文件夹已存在，跳过添加。名称: $displayName, 图片数量: $imageCount")
-                            showAddMenu = false
-                            return@launch
-                        }
-
-                        // 没有重复，继续复制文件夹到 ComicStorage
-                        var copyCompleted = false
-                        withContext(Dispatchers.IO) {
-                            copyFolderToComicStorage(
-                                    context = context,
-                                    sourceUri = it,
-                                    folderName = displayName,
-                                    onProgress = { message -> Log.d("ComicReader", message) },
-                                    onComplete = { targetFolder -> copyCompleted = true },
-                                    onError = { e -> Log.e("ComicReader", "复制文件夹失败", e) }
-                            )
-                        }
-                        // 复制完成后，在主线程刷新列表
-                        if (copyCompleted) {
-                            // 重新扫描 ComicStorage 并更新列表
-                            val items =
-                                    withContext(Dispatchers.IO) {
-                                        val result = mutableListOf<ComicItem>()
-                                        scanComicStorage(context) { item -> result.add(item) }
-                                        result
+                            // 检查是否已存在相同名称和图片数量的文件夹
+                            val isDuplicate =
+                                    comicList.any { item ->
+                                        item.name == displayName && item.imageCount == imageCount
                                     }
-                            comicList = items
-                            Log.d("ComicReader", "从 ComicStorage 加载了 ${items.size} 个漫画文件夹")
+
+                            if (isDuplicate) {
+                                // 如果重复，显示提示并终止，回退到主页
+                                Toast.makeText(context, "该漫画文件夹已经添加到列表中了", Toast.LENGTH_SHORT).show()
+                                Log.d("ComicReader", "文件夹已存在，跳过添加。名称: $displayName, 图片数量: $imageCount")
+                                showAddMenu = false
+                                return@launch // finally 块会执行，关闭 loading
+                            }
+
+                            // 没有重复，继续复制文件夹到 ComicStorage
+                            var copyCompleted = false
+                            withContext(Dispatchers.IO) {
+                                copyFolderToComicStorage(
+                                        context = context,
+                                        sourceUri = it,
+                                        folderName = displayName,
+                                        onProgress = { message -> Log.d("ComicReader", message) },
+                                        onComplete = { targetFolder -> copyCompleted = true },
+                                        onError = { e -> Log.e("ComicReader", "复制文件夹失败", e) }
+                                )
+                            }
+                            // 复制完成后，在主线程刷新列表
+                            if (copyCompleted) {
+                                // 重新扫描 ComicStorage 并更新列表
+                                val items =
+                                        withContext(Dispatchers.IO) {
+                                            val result = mutableListOf<ComicItem>()
+                                            scanComicStorage(context) { item -> result.add(item) }
+                                            result
+                                        }
+                                comicList = items
+                                Log.d("ComicReader", "从 ComicStorage 加载了 ${items.size} 个漫画文件夹")
+                            }
+                        } finally {
+                            isLoadingComicList = false
                         }
                     }
                 }
@@ -185,33 +194,38 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                     selectedArchiveUri = it
                     // 在后台线程复制压缩包到 ComicStorage 并解压
                     coroutineScope.launch {
-                        var copyCompleted = false
-                        withContext(Dispatchers.IO) {
-                            copyArchiveToComicStorage(
-                                    context = context,
-                                    sourceUri = it,
-                                    onComplete = { copyCompleted = true },
-                                    onError = { e -> Log.e("ComicReader", "复制压缩包失败", e) }
-                            )
-                        }
-                        // 复制完成后，在主线程刷新列表
-                        if (copyCompleted) {
-                            // 重新扫描 ComicStorage 并更新列表
-                            val items =
-                                    withContext(Dispatchers.IO) {
-                                        val result = mutableListOf<ComicItem>()
-                                        scanComicStorage(context) { item -> result.add(item) }
-                                        result
-                                    }
-                            comicList = items
-                            Log.d("ComicReader", "从 ComicStorage 加载了 ${items.size} 个漫画文件夹")
+                        isLoadingComicList = true
+                        try {
+                            var copyCompleted = false
+                            withContext(Dispatchers.IO) {
+                                copyArchiveToComicStorage(
+                                        context = context,
+                                        sourceUri = it,
+                                        onComplete = { copyCompleted = true },
+                                        onError = { e -> Log.e("ComicReader", "复制压缩包失败", e) }
+                                )
+                            }
+                            // 复制完成后，在主线程刷新列表
+                            if (copyCompleted) {
+                                // 重新扫描 ComicStorage 并更新列表
+                                val items =
+                                        withContext(Dispatchers.IO) {
+                                            val result = mutableListOf<ComicItem>()
+                                            scanComicStorage(context) { item -> result.add(item) }
+                                            result
+                                        }
+                                comicList = items
+                                Log.d("ComicReader", "从 ComicStorage 加载了 ${items.size} 个漫画文件夹")
+                            }
+                        } finally {
+                            isLoadingComicList = false
                         }
                     }
                 }
                 showAddMenu = false
             }
-
-    // 初始化时从 ComicStorage 加载所有漫画
+    // LaunchedEffect：类似于 useEffect 的 Hook，在 Composable 函数执行时触发，但只在组件首次渲染时执行一次。
+    // 初始化时，从 ComicStorage 加载所有漫画
     LaunchedEffect(Unit) { refreshComicListFromStorage(context) }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -224,7 +238,10 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                     onAddClick = { showAddMenu = !showAddMenu },
                     showAddMenu = showAddMenu,
                     onSelectFolder = { folderPickerLauncher.launch(null) },
-                    onSelectArchive = { filePickerLauncher.launch("application/zip") }
+                    onSelectArchive = { 
+                        // 支持多种压缩包格式
+                        filePickerLauncher.launch("*/*")
+                    }
             )
 
             // 搜索框
@@ -267,7 +284,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                                     if (paths.isEmpty()) {
                                         Log.e(
                                                 "ComicReader",
-                                                "加载图片失败: ${item.name}, folderPath: ${item.folderPath}"
+                                                "加载图片失败: ${item.name}"
                                         )
                                     } else {
                                         Log.d(
@@ -277,6 +294,28 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                                     }
                                 }
                             }
+                    )
+                }
+            }
+        }
+
+        // Loading 效果（处理文件夹/压缩包时显示）
+        if (isLoadingComicList) {
+            Box(
+                    modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.6f)),
+                    contentAlignment = Alignment.Center
+            ) {
+                Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    CircularProgressIndicator(color = Color.White)
+                    Text(
+                            text = "Loading...",
+                            color = Color.White,
+                            fontSize = 16.sp
                     )
                 }
             }
@@ -407,7 +446,7 @@ fun TopBar(
                                                     tint = Color.Black
                                             )
                                             Text(
-                                                    text = "Select Archive (.zip/.cbz)",
+                                                    text = "Select Archive (.zip/.cbz/.rar/.cbr)",
                                                     color = Color.Black
                                             )
                                         }
@@ -541,6 +580,8 @@ fun getDisplayName(contentResolver: ContentResolver, uri: Uri): String? {
 // 判断文件名是否为图片文件（通用方法）
 fun isImageFile(fileName: String?): Boolean {
     return fileName != null &&
+            // 排除 macOS 资源分叉文件（以 ._ 开头的文件）
+            !fileName.startsWith("._", ignoreCase = true) &&
             (fileName.endsWith(".jpg", ignoreCase = true) ||
                     fileName.endsWith(".jpeg", ignoreCase = true) ||
                     fileName.endsWith(".png", ignoreCase = true) ||
@@ -599,11 +640,31 @@ fun copyArchiveToComicStorage(
 ) {
     try {
         val storageDir = ensureComicStorageExists()
-        val archiveName =
-                getDisplayName(context.contentResolver, sourceUri)
-                        ?.removeSuffix(".zip")
-                        ?.removeSuffix(".cbz")
-                        ?: "未知压缩包"
+        val fileName = getDisplayName(context.contentResolver, sourceUri)?.lowercase() ?: ""
+        
+        // 检测文件格式
+        val supportedFormats = mapOf(
+                ".zip" to "ZIP",
+                ".cbz" to "ZIP",
+                ".rar" to "RAR",
+                ".cbr" to "RAR"
+        )
+        
+        val fileExtension = supportedFormats.keys.firstOrNull { fileName.endsWith(it) }
+        if (fileExtension == null) {
+            onError(Exception("不支持的压缩包格式。当前仅支持 .zip、.cbz、.rar 和 .cbr 格式"))
+            return
+        }
+        
+        val archiveType = supportedFormats[fileExtension]!!
+        
+        // 获取压缩包名称（去除扩展名）
+        val archiveName = getDisplayName(context.contentResolver, sourceUri)
+                ?.removeSuffix(".zip")
+                ?.removeSuffix(".cbz")
+                ?.removeSuffix(".rar")
+                ?.removeSuffix(".cbr")
+                ?: "未知压缩包"
 
         // 创建目标文件夹
         var targetFolder = File(storageDir, archiveName)
@@ -614,35 +675,22 @@ fun copyArchiveToComicStorage(
         }
         targetFolder.mkdirs()
 
-        // 复制并解压压缩包
+        // 复制压缩包到临时文件
         val inputStream = context.contentResolver.openInputStream(sourceUri)
-        val tempFile = File.createTempFile("comic_", ".zip", context.cacheDir)
+        val tempFileExtension = when (archiveType) {
+                "ZIP" -> ".zip"
+                "RAR" -> ".rar"
+                else -> ".zip"
+        }
+        val tempFile = File.createTempFile("comic_", tempFileExtension, context.cacheDir)
         inputStream?.use { it.copyTo(tempFile.outputStream()) }
 
-        val zipFile = ZipFile(tempFile)
-        val entries = zipFile.entries().toList()
-
-        val imageEntries =
-                entries
-                        .filter { entry ->
-                            !entry.isDirectory &&
-                                    (entry.name.endsWith(".jpg", ignoreCase = true) ||
-                                            entry.name.endsWith(".jpeg", ignoreCase = true) ||
-                                            entry.name.endsWith(".png", ignoreCase = true) ||
-                                            entry.name.endsWith(".webp", ignoreCase = true))
-                        }
-                        .sortedBy { it.name }
-
-        // 提取所有图片到目标文件夹
-        imageEntries.forEach { entry ->
-            zipFile.getInputStream(entry).use { input ->
-                val fileName = File(entry.name).name // 获取文件名（去除路径）
-                val targetFile = File(targetFolder, fileName)
-                targetFile.outputStream().use { output -> input.copyTo(output) }
-            }
+        // 根据格式解压
+        when (archiveType) {
+                "ZIP" -> extractZipArchive(tempFile, targetFolder)
+                "RAR" -> extractRarArchive(tempFile, targetFolder)
         }
 
-        zipFile.close()
         tempFile.delete()
         onComplete()
     } catch (e: Exception) {
@@ -650,147 +698,75 @@ fun copyArchiveToComicStorage(
     }
 }
 
-// 加载图片路径列表
+// 解压 ZIP 格式压缩包
+private fun extractZipArchive(zipFile: File, targetFolder: File) {
+    ZipFile(zipFile).use { zip ->
+        val entries = zip.entries().toList()
+        
+        val imageEntries =
+                entries
+                        .filter { entry ->
+                            !entry.isDirectory && isImageFile(entry.name)
+                        }
+                        .sortedBy { it.name }
+
+        // 提取所有图片到目标文件夹
+        imageEntries.forEach { entry ->
+            zip.getInputStream(entry).use { input ->
+                val fileName = File(entry.name).name // 获取文件名（去除路径）
+                val targetFile = File(targetFolder, fileName)
+                targetFile.outputStream().use { output -> input.copyTo(output) }
+            }
+        }
+    }
+}
+
+// 解压 RAR 格式压缩包
+private fun extractRarArchive(rarFile: File, targetFolder: File) {
+    val archive = Archive(rarFile)
+    try {
+        val imageEntries = mutableListOf<FileHeader>()
+        
+        // 遍历 RAR 文件中的所有条目
+        var fileHeader = archive.nextFileHeader()
+        while (fileHeader != null) {
+            if (!fileHeader.isDirectory && isImageFile(fileHeader.fileName)) {
+                imageEntries.add(fileHeader)
+            }
+            fileHeader = archive.nextFileHeader()
+        }
+        
+        // 按文件名排序
+        imageEntries.sortBy { it.fileName }
+        
+        // 提取所有图片到目标文件夹
+        imageEntries.forEach { header ->
+            val fileName = File(header.fileName).name // 获取文件名（去除路径）
+            val targetFile = File(targetFolder, fileName)
+            targetFile.outputStream().use { output ->
+                archive.extractFile(header, output)
+            }
+        }
+    } finally {
+        archive.close()
+    }
+}
+
+// 加载图片路径列表（仅支持本地文件路径 - ComicStorage 中的文件夹）
 fun loadImagePaths(context: Context, item: ComicItem, onPathsLoaded: (List<String>) -> Unit) {
     try {
         val paths = mutableListOf<String>()
-
-        when {
-            // 本地文件路径（ComicStorage 中的文件夹）
-            item.folderPath.startsWith("/") -> {
-                val folder = File(item.folderPath)
-                if (folder.exists() && folder.isDirectory) {
-                    val imageFiles =
-                            folder.listFiles { file ->
-                                file.isFile &&
-                                        (file.name.endsWith(".jpg", ignoreCase = true) ||
-                                                file.name.endsWith(".jpeg", ignoreCase = true) ||
-                                                file.name.endsWith(".png", ignoreCase = true) ||
-                                                file.name.endsWith(".webp", ignoreCase = true))
-                            }
-                    if (imageFiles != null) {
-                        imageFiles.sortedBy { it.name }.forEach { file ->
-                            paths.add(file.absolutePath)
-                        }
+        // 从 ComicStorage 路径 + 漫画名称构建完整路径
+        val folder = File(getComicStoragePath(), item.name)
+        
+        if (folder.exists() && folder.isDirectory) {
+            val imageFiles =
+                    folder.listFiles { file ->
+                        file.isFile && isImageFile(file.name)
                     }
-                }
-            }
-            // Assets 文件夹
-            item.folderPath.startsWith("assets/") -> {
-                val assetManager = context.assets
-                val folderName = item.folderPath.removePrefix("assets/")
-                val files = assetManager.list(folderName)
-                if (files != null) {
-                    files
-                            .filter { file ->
-                                file.endsWith(".jpg", ignoreCase = true) ||
-                                        file.endsWith(".jpeg", ignoreCase = true) ||
-                                        file.endsWith(".png", ignoreCase = true) ||
-                                        file.endsWith(".webp", ignoreCase = true)
-                            }
-                            .sorted()
-                            .forEach { fileName ->
-                                paths.add("file:///android_asset/$folderName/$fileName")
-                            }
-                }
-            }
-            // URI 文件夹（通过 DocumentsContract）
-            item.folderPath.startsWith("content://") -> {
-                val uri = Uri.parse(item.folderPath)
-                val contentResolver = context.contentResolver
-                val imageUris = mutableListOf<Uri>()
-
-                val childrenUri =
-                        android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(
-                                uri,
-                                android.provider.DocumentsContract.getTreeDocumentId(uri)
-                        )
-
-                contentResolver.query(
-                                childrenUri,
-                                arrayOf(
-                                        android.provider.DocumentsContract.Document
-                                                .COLUMN_DOCUMENT_ID,
-                                        android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE
-                                ),
-                                null,
-                                null,
-                                null
-                        )
-                        ?.use { cursor ->
-                            val idColumn =
-                                    cursor.getColumnIndexOrThrow(
-                                            android.provider.DocumentsContract.Document
-                                                    .COLUMN_DOCUMENT_ID
-                                    )
-                            val mimeTypeColumn =
-                                    cursor.getColumnIndexOrThrow(
-                                            android.provider.DocumentsContract.Document
-                                                    .COLUMN_MIME_TYPE
-                                    )
-
-                            while (cursor.moveToNext()) {
-                                val documentId = cursor.getString(idColumn)
-                                val mimeType = cursor.getString(mimeTypeColumn)
-
-                                if (mimeType?.startsWith("image/") == true) {
-                                    val documentUri =
-                                            android.provider.DocumentsContract
-                                                    .buildDocumentUriUsingTree(uri, documentId)
-                                    imageUris.add(documentUri)
-                                }
-                            }
-                        }
-
-                imageUris.sortedBy { it.toString() }.forEach { uri -> paths.add(uri.toString()) }
-            }
-            // ZIP 压缩包
-            else -> {
-                try {
-                    val uri = Uri.parse(item.folderPath)
-                    val inputStream = context.contentResolver.openInputStream(uri)
-                    val tempFile = File.createTempFile("comic_", ".zip", context.cacheDir)
-                    inputStream?.use { it.copyTo(tempFile.outputStream()) }
-
-                    val zipFile = ZipFile(tempFile)
-                    val entries = zipFile.entries().toList()
-
-                    val imageEntries =
-                            entries
-                                    .filter { entry ->
-                                        !entry.isDirectory &&
-                                                (entry.name.endsWith(".jpg", ignoreCase = true) ||
-                                                        entry.name.endsWith(
-                                                                ".jpeg",
-                                                                ignoreCase = true
-                                                        ) ||
-                                                        entry.name.endsWith(
-                                                                ".png",
-                                                                ignoreCase = true
-                                                        ) ||
-                                                        entry.name.endsWith(
-                                                                ".webp",
-                                                                ignoreCase = true
-                                                        ))
-                                    }
-                                    .sortedBy { it.name }
-
-                    // 提取所有图片到临时文件
-                    imageEntries.forEachIndexed { index, entry ->
-                        zipFile.getInputStream(entry).use { input ->
-                            val imageFile =
-                                    File(
-                                            context.cacheDir,
-                                            "comic_${item.id}_${index}_${entry.name}"
-                                    )
-                            imageFile.outputStream().use { output -> input.copyTo(output) }
-                            paths.add(imageFile.absolutePath)
-                        }
-                    }
-
-                    zipFile.close()
-                } catch (e: Exception) {
-                    e.printStackTrace()
+            if (imageFiles != null) {
+                imageFiles.sortedBy { it.name }.forEach { file ->
+                    paths.add(file.absolutePath)
                 }
             }
         }
@@ -992,8 +968,7 @@ fun scanComicStorage(context: Context, onItemParsed: (ComicItem) -> Unit) {
                                 id = itemId++,
                                 name = folder.name,
                                 thumbnailPath = thumbnailFile.absolutePath,
-                                imageCount = sortedFiles.size,
-                                folderPath = folder.absolutePath
+                                imageCount = sortedFiles.size
                         )
                 onItemParsed(item)
             }

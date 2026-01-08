@@ -55,6 +55,8 @@ dependencies {
     // Pager 功能已包含在 foundation 库中（从 Compose 1.5.0+ 开始）
     // 不需要单独引用 foundation-pager，BOM 会自动管理版本
     implementation("androidx.compose.foundation:foundation")
+    // RAR 压缩包支持
+    implementation("com.github.junrar:junrar:7.5.4")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
